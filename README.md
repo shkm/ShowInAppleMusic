@@ -23,7 +23,6 @@ This assumes you have Hammerspoon installed.
 hs.loadSpoon("ShowInAppleMusic")
 hs.spoons.ShowInAppleMusic:openDelay = 0.10 -- tweak if necessary, defaults to 0.10
 hs.spoons.ShowInAppleMusic:clickModifiers = { alt = true } -- optional, defaults to { alt = true }
-})
 ```
 
 3. Reload your config.
