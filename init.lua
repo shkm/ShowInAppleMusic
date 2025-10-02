@@ -2,10 +2,10 @@ local obj = {}
 obj.__index = obj
 
 obj.name = "ShowInAppleMusic"
-obj.version = "0.2.0"
+obj.version = "0.3.0"
 obj.author = "Jamie Schembri"
 obj.homepage = "https://github.com/shkm/ShowInAppleMusic"
-obj.license = "MIT"
+obj.license = "WTFPL"
 
 -- Overridables
 obj.matchText = "Show in Apple Music" -- menu item to click
