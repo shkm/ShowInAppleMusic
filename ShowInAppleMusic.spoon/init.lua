@@ -2,7 +2,7 @@ local obj = {}
 obj.__index = obj
 
 obj.name = "ShowInAppleMusic"
-obj.version = "0.1.0"
+obj.version = "0.2.0"
 obj.author = "Jamie Schembri"
 obj.homepage = "https://github.com/shkm/ShowInAppleMusic"
 obj.license = "MIT"
@@ -40,94 +40,84 @@ end
 
 -- Find the context menu and press the matching item
 function obj:_selectItemFromContextMenu()
+  local startTime = hs.timer.secondsSinceEpoch()
+  local maxNodes = 500
+  local maxDepth = 15
+  local log = function(msg)
+    hs.printf("[ShowInAppleMusic] %s", msg)
+  end
+
   if not isAppleMusicFrontmost() then
+    log("Not in Apple Music")
     return false, "Not in Apple Music"
   end
   local app = hs.application.frontmostApplication()
-  if not app then return false, "No frontmost app" end
+  if not app then
+    log("No frontmost app")
+    return false, "No frontmost app"
+  end
 
   local axApp = ax.applicationElement(app)
-  if not axApp then return false, "No AX app" end
+  if not axApp then
+    log("No AX app")
+    return false, "No AX app"
+  end
 
-  local candidates = {}
-  local function push(v) if v then table.insert(candidates, v) end end
-
-  -- Windows, app root, and system-wide element
+  -- Only use the frontmost window as the candidate root
   local wins = axApp:attributeValue("AXWindows") or {}
-  for _, w in ipairs(wins) do push(w) end
-  push(axApp)
-  push(ax.systemWideElement())
+  local candidate = wins[1]
+  if not candidate then
+    local elapsed = hs.timer.secondsSinceEpoch() - startTime
+    log(string.format("No frontmost window found after %.3fs", elapsed))
+    return false, "No frontmost window"
+  end
 
   local function isMenuContainer(el)
     local role = el and el:attributeValue("AXRole")
     return role == "AXMenu" or role == "AXMenuBar" or role == "AXUnknown"
   end
 
-  -- Pass 1: find AXMenu -> AXMenuItem
-  for _, root in ipairs(candidates) do
-    if root then
-      local queue = { root }
-      local visited = hs.fnutils.copy(queue)
-      local function seen(e)
-        for _, x in ipairs(visited) do if x == e then return true end end
-        return false
-      end
-      while #queue > 0 do
-        local el = table.remove(queue, 1)
-        if isMenuContainer(el) then
-          for _, mi in ipairs(childrenOf(el)) do
-            if mi:attributeValue("AXRole") == "AXMenuItem" then
-              local title = mi:attributeValue("AXTitle")
-              if matches(title, self.matchText) then
-                return press(mi), title
-              end
-            end
-          end
-        end
-        for _, ch in ipairs(childrenOf(el)) do
-          if not seen(ch) then
-            table.insert(queue, ch)
-            table.insert(visited, ch)
-          end
-        end
-      end
-    end
-  end
+  local totalNodes = 0
 
-  -- Pass 2: transient windows containing menus
-  for _, root in ipairs(candidates) do
-    local queue = { root }
-    local visited = hs.fnutils.copy(queue)
-    local function seen(e)
-      for _, x in ipairs(visited) do if x == e then return true end end
-      return false
+  -- Only pass: find AXMenu -> AXMenuItem in the frontmost window
+  local queue = { { el = candidate, depth = 1 } }
+  local visited = {}
+  visited[candidate] = true
+  while #queue > 0 do
+    if totalNodes >= maxNodes then
+      log("Node limit reached")
+      break
     end
-    while #queue > 0 do
-      local el = table.remove(queue, 1)
-      local role = el and el:attributeValue("AXRole")
-      if role == "AXWindow" or role == "AXSheet" or role == "AXPopover" or role == "AXDrawer" then
-        for _, k in ipairs(childrenOf(el)) do
-          if k:attributeValue("AXRole") == "AXMenu" then
-            for _, mi in ipairs(childrenOf(k)) do
-              if mi:attributeValue("AXRole") == "AXMenuItem" then
-                local title = mi:attributeValue("AXTitle")
-                if matches(title, self.matchText) then
-                  return press(mi), title
-                end
-              end
+    local item = table.remove(queue, 1)
+    local el, depth = item.el, item.depth
+    totalNodes = totalNodes + 1
+    if depth > maxDepth then
+      log("Depth limit reached at node " .. tostring(el))
+      -- skip further traversal from this node
+    else
+      if isMenuContainer(el) then
+        for _, mi in ipairs(childrenOf(el)) do
+          if mi:attributeValue("AXRole") == "AXMenuItem" then
+            local title = mi:attributeValue("AXTitle")
+            if matches(title, self.matchText) then
+              local elapsed = hs.timer.secondsSinceEpoch() - startTime
+              log(string.format("Found menu item after %.3fs, nodes: %d", elapsed, totalNodes))
+              return press(mi), title
             end
           end
         end
       end
       for _, ch in ipairs(childrenOf(el)) do
-        if not seen(ch) then
-          table.insert(queue, ch)
-          table.insert(visited, ch)
+        if not visited[ch] then
+          table.insert(queue, { el = ch, depth = depth + 1 })
+          visited[ch] = true
         end
       end
     end
   end
 
+  local elapsed = hs.timer.secondsSinceEpoch() - startTime
+  log(string.format("Menu item not found after %.3fs, nodes: %d", elapsed, totalNodes))
   return false, "No matching item"
 end
 
@@ -139,7 +129,12 @@ function obj:rightClickThenSelect()
   hs.timer.doAfter(self.openDelay or 0.10, function()
     local ok, detail = self:_selectItemFromContextMenu()
     if not ok then
-      hs.alert.show("Menu item not found: " .. tostring(detail), 1, {}, 1, 5)
+      hs.notify.new({
+        title = "ShowInAppleMusic",
+        informativeText = "Menu item not found: " .. tostring(detail),
+        autoWithdraw = true,
+        withdrawAfter = 5
+      }):send()
     end
   end)
 end
